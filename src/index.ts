@@ -41,9 +41,39 @@ const extension: JupyterFrontEndPlugin<void> = {
     tracker: INotebookTracker,
     settingRegistry: ISettingRegistry
   ) => {
+    const pluginId = `${PLUGIN_NAME}:settings`;
+
+    // Populate the `timezone` dropdown with the IANA timezones the host
+    // runtime supports. Done as a `fetch` transform so the choices are
+    // baked into the schema before the settings UI renders it.
+    settingRegistry.transform(pluginId, {
+      fetch: plugin => {
+        // `Intl.supportedValuesOf` lives in lib.es2022.intl; cast narrowly
+        // instead of bumping the project-wide tsconfig.
+        const supportedValuesOf = (
+          Intl as { supportedValuesOf?: (key: 'timeZone') => string[] }
+        ).supportedValuesOf;
+        const zones = supportedValuesOf ? supportedValuesOf('timeZone') : [];
+        const properties = plugin.schema.properties ?? {};
+        properties.timezone = {
+          ...properties.timezone,
+          oneOf: [
+            { type: 'string', const: '', title: 'Browser local time' },
+            ...zones.map(zone => ({
+              type: 'string',
+              const: zone,
+              title: zone,
+            })),
+          ],
+        };
+        plugin.schema.properties = properties;
+        return plugin;
+      },
+    });
+
     let settings: ISettingRegistry.ISettings;
     try {
-      settings = await settingRegistry.load(`${PLUGIN_NAME}:settings`);
+      settings = await settingRegistry.load(pluginId);
     } catch (err: unknown) {
       console.error(
         `jupyterlab-execute-time: Could not load settings, so did not active ${PLUGIN_NAME}: ${err}`
